@@ -1,0 +1,16 @@
+// Adds three charts into GUI to interactively display a
+// time-series of NDVI, Tasseled Cap Transform, and reflectance for a selected location
+//
+// Modified by Lance D. Yarbrough
+// The University of Mississippi
+// Department of Geology & Geological Engineering
+// ldyarbro@olemiss.edu
+//
+
+
+// Filter collection to dates of interest.
+// Using a Cloud Cover that is less than 1 on land and HIGH imaga qualtity
+
+var l8 = ee.ImageCollection(l8TOA
+ //   .filterBounds(selectionpoint) //this allows a check in the Console to limit the NDVI images to a single 
+    .filterDate('2014-01-01', '2017-11-01')
