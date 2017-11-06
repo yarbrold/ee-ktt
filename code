@@ -1,4 +1,4 @@
-// Adds three charts into GUI to interactively display a
+// Adds charts into GUI to interactively display a
 // time-series of NDVI, Tasseled Cap Transform, and reflectance for a selected location
 //
 // Modified by Lance D. Yarbrough
