@@ -1,12 +1,19 @@
 // Adds charts into GUI to interactively display a
 // time-series of NDVI, Tasseled Cap Transform, and reflectance for a selected location
 //
-// Modified by Lance D. Yarbrough
+// Created by Lance D. Yarbrough
 // The University of Mississippi
 // Department of Geology & Geological Engineering
 // ldyarbro@olemiss.edu
 //
+// found at www.github.com/yarbrold/ee-ktt
+//
+// This code was expanded greatly into functions and calls
+// with comments. There is more effcient coding but to better 
+// understand the functions we supply the end user with this
+// verstion.
 
+var l8TOA = ee.ImageCollection('LANDSAT/LC8_L1T_TOA');
 
 // Filter collection to dates of interest.
 // Using a Cloud Cover that is less than 1 on land and HIGH imaga qualtity
@@ -14,3 +21,202 @@
 var l8 = ee.ImageCollection(l8TOA
  //   .filterBounds(selectionpoint) //this allows a check in the Console to limit the NDVI images to a single 
     .filterDate('2014-01-01', '2017-11-01')
+    .filterMetadata('IMAGE_QUALITY_OLI', 'equals', 9)
+    .filterMetadata('CLOUD_COVER_LAND', 'less_than', 1)
+    );
+
+//print('These are the images of L8',l8); //Check in Console
+
+// Using a Cloud Cover that is less than 10
+
+var s2TOA = ee.ImageCollection('COPERNICUS/S2')
+
+var s2 = ee.ImageCollection(s2TOA
+//    .filterBounds(selectionpoint) //this allows a check in the Console to limit the NDVI images to a single 
+    .filterDate('2014-01-01', '2017-11-01')
+    .filterMetadata('CLOUDY_PIXEL_PERCENTAGE', 'less_than', 10)
+    );
+
+//print('These are the images of Sentinel-2',s2);//Check in Console
+
+
+// Create the collections to sample from, one for each plot for Landsat 8 OLI 
+var rgb = l8.select(['B4', 'B3', 'B2']);
+var ndvi = l8.map(function(image) {
+  return image.select().addBands(image.normalizedDifference(['B5', 'B4']));
+});
+ var bandstoaselect8 = ee.ImageCollection(l8
+   .select(['B2','B3','B4','B5','B6','B7']));
+
+//  print('This is the selected bands of TOA Landsat 8 scene:', bandstoaselect8); //Check in Console
+
+// Create the collections to sample from, one for each plot for Sentinel-2 MSI 
+var rgbs2 = s2.select(['B8', 'B11', 'B2']);//Healthy veg for S2 Ag=11,8,2 or FC Urban = 12,11,4
+var ndvis2 = s2.map(function(image) {
+  return image.select().addBands(image.normalizedDifference(['B8', 'B4']));
+});
+ var imagetoaselectS2 = ee.ImageCollection(s2
+   .select(['B1','B2','B3','B4','B5','B6','B7', 'B8','B9', 'B10','B11','B12','B8A']));
+
+//  print('This is the selected bands of TOA Sentinel-2 scene:', imagetoaselectS2); //Check in Console
+   
+//Tasseled Cap Transform coeffcients for L8 OLI at-sensor reflectance (TOA)//////////////
+//Brightness
+//Grenness
+//Wetness
+//Fourth
+//Fifth
+//Sixth
+//Baig, et al. (2014)
+//Bands used: B2	B3	B4	B5	B6	B7
+var l8TOAKTT = ee.Array([
+  [0.3029,	0.2786,	0.4733,	0.5599,	0.508,	0.1872],
+  [-0.2941,	-0.243,	-0.5424,	0.7276,	0.0713,	-0.1608],
+  [0.1511,	0.1973,	0.3283,	0.3407,	-0.7117,	-0.4559],
+  [-0.8239,	0.0849,	0.4396,	-0.058,	0.2013,	-0.2773],
+  [-0.3294,	0.0557,	0.1056,	0.1855,	-0.4349,	0.8085],
+  [0.1079,	-0.9023,	0.4119,	0.0575,	-0.0259,	0.0252]
+]);
+
+var addTCT = function(image) {
+          var arrayImage1D = image.toArray();// Make an Array Image, with a 1-D Array per pixel.
+          var arrayImage2D = arrayImage1D.toArray(1); // Make an Array Image with a 2-D Array per pixel, 6x1.
+          var KTTArrayImage = ee.Image(l8TOAKTT)
+              .matrixMultiply(arrayImage2D)
+              .arrayProject([0])
+              .arrayFlatten(
+              [['brightness', 'greenness', 'wetness', 'KTT-fourth', 'KTT-fifth', 'KTT-sixth']])
+  return  image.addBands(KTTArrayImage);
+};
+var tctimages = bandstoaselect8.map(addTCT);
+//print(tctimages); //Check in Console
+
+var TCTonly = ee.ImageCollection(tctimages).select('brightness', 'greenness', 'wetness');
+//print(TCTonly); //Check in Console
+
+//Tasseled Cap Transform coeffcients for Sentinel-2 MSI, LEvel-1C at-sensor reflectance (TOA)//////////////////////////
+//Brightness
+//Grenness
+//Wetness
+//Nedkov (2017) chose to truncate the dimensionality to a 3x13
+//Bands used are: B1	B2	B3	B4	B5	B6	B7	B8	B9	B10	B11	B12	B8A
+//
+var S2TOAKTT = ee.Array([
+  [0.0356,	0.0822,	0.136,	0.2611,	0.2964,	0.3338,	0.3877,	0.3895,	0.949,	0.0009,	0.3882,	0.1366,	0.475],
+  [-0.0635,	-0.1128,	-0.1680,	-0.3480,	-0.3303,	0.0852,	0.3302,	0.3165,	0.0467,	-0.0009,	-0.4578,	-0.4064,	0.3625],
+  [0.0649,	0.1363,	0.2802,	0.3072,	0.5288,	0.1379,	-0.0001,	-0.0807,	-0.0302,	0.0003,	-0.4064,	-0.5602,	-0.1389],
+]);
+
+var addTCTs2 = function(images2) {
+          var arrayImage1Ds2 = images2.toArray();// Make an Array Image, with a 1-D Array per pixel.
+          var arrayImage2Ds2 = arrayImage1Ds2.toArray(1); // Make an Array Image with a 2-D Array per pixel, 6x1.
+          var KTTArrayImages2 = ee.Image(S2TOAKTT)
+              .matrixMultiply(arrayImage2Ds2)
+              .arrayProject([0])
+              .arrayFlatten(
+              [['brightness', 'greenness', 'wetness']])
+  return  images2.addBands(KTTArrayImages2);
+};
+var tcts2images = imagetoaselectS2.map(addTCTs2);
+//print(tcts2images);//Check in Console
+var TCTs2only = ee.ImageCollection(tcts2images).select('brightness', 'greenness', 'wetness');
+
+
+//Visualized the data////////////////////////////////////////////////
+
+var vis = {min: 0, max: 1, palette: [
+  'FFFFFF', 'CE7E45', 'FCD163', '66A000', '207401',
+  '056201', '004C00', '023B01', '012E01', '011301'
+]};
+Map.addLayer(ndvi, vis, 'NDVI');
+
+
+// Create a panel to hold our widgets.
+var panel = ui.Panel();
+panel.style().set('width', '300px');
+
+// Create an intro panel with labels.
+var intro = ui.Panel([
+  ui.Label({
+    value: 'Multi Chart Tool',
+    style: {fontSize: '20px', fontWeight: 'bold'}
+  }),
+  ui.Label('Click a point on the map to inspect.')
+]);
+panel.add(intro);
+
+// Create panels to hold longitude and latitude values.
+var lon = ui.Label();
+var lat = ui.Label();
+panel.add(ui.Panel([lon, lat], ui.Panel.Layout.flow('horizontal')));
+
+// Register a callback on the default map to be invoked when the map is clicked.
+Map.onClick(function(coords) {
+  // Update the lon/lat panel with values from the click event.
+  lon.setValue('lon (x): ' + coords.lon.toFixed(2)),
+  lat.setValue('lat (y): ' + coords.lat.toFixed(2));
+
+  // Add a red dot for the point clicked on.
+  var point = ee.Geometry.Point(coords.lon, coords.lat);
+  var dot = ui.Map.Layer(point, {color: 'FF0000'});
+  Map.layers().set(1, dot);
+
+  // Create an NDVI chart.
+  var ndviChart = ui.Chart.image.series(ndvi, point, ee.Reducer.mean(), 500);
+  ndviChart.setOptions({
+    title: 'NDVI L8 Over Time',
+    vAxis: {title: 'NDVI L8 Reflectance'},
+    hAxis: {title: 'date', format: 'MM-yy', gridlines: {count: 7}},
+  });
+  panel.widgets().set(2, ndviChart);
+  
+  // Create an Tasseled Cap Transform L8 band chart.
+  var TCTChart = ui.Chart.image.series(TCTonly, point)
+      .setOptions({
+        title: 'Tasseled Cap Values L8-OLI',
+        vAxis: {title: 'TCT Value'},
+        hAxis: {title: 'date', format: 'MM-yy', gridlines: {count: 7}},
+      });
+   panel.widgets().set(3, TCTChart);
+   
+  // Create an NDVI chart.
+  var ndvis2Chart = ui.Chart.image.series(ndvis2, point, ee.Reducer.mean(), 500);
+  ndvis2Chart.setOptions({
+    title: 'NDVI S2 Over Time',
+    vAxis: {title: 'NDVI S2 Reflectance'},
+    hAxis: {title: 'date', format: 'MM-yy', gridlines: {count: 7}},
+  });
+  panel.widgets().set(4, ndvis2Chart);
+
+  //  Create an Tasseled Cap Transform Sentinel-2 band chart.
+  var TCTs2Chart = ui.Chart.image.series(TCTs2only, point)
+      .setOptions({
+       title: 'Tasseled Cap Values Sentinel-2',
+       vAxis: {title: 'TCT Value'},
+       hAxis: {title: 'date', format: 'MM-yy', gridlines: {count: 7}},
+     });
+  panel.widgets().set(5, TCTs2Chart);
+  
+  // Create an reflectance band chart for L8.
+  var rgbl8Chart = ui.Chart.image.series(rgb, point)
+      .setOptions({
+       title: 'L8 RGB Reflectance',
+       vAxis: {title: 'Reflectance'},
+       hAxis: {title: 'date', format: 'MM-yy', gridlines: {count: 7}},
+     });
+  panel.widgets().set(6, rgbl8Chart);
+  
+  // Create an reflectance band chart for S2.
+  var rgbs2Chart = ui.Chart.image.series(rgbs2, point)
+      .setOptions({
+       title: 'S2 RGB Reflectance',
+       vAxis: {title: 'Scaled reflectance (x1000)'},
+       hAxis: {title: 'date', format: 'MM-yy', gridlines: {count: 7}},
+     });
+  panel.widgets().set(7, rgbs2Chart);
+});
+
+Map.style().set('cursor', 'crosshair');
+
+// Add the panel to the ui.root.
+ui.root.insert(0, panel);
